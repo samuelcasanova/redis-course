@@ -4,6 +4,12 @@ services:
     container_name: redis
     ports:
       - "6379:6379"
+    # The official redis image accepts command line arguments to configure redis-server
+    # --appendonly yes: Enables AOF persistence
+    # --save "60 1": Enables RDB snapshotting (save dataset every 60 seconds if at least 1 key changed)
+    command: redis-server --appendonly yes --save "60 1"
+    volumes:
+      - ./.data/redis:/data
 
   redis-commander:
     image: rediscommander/redis-commander:latest

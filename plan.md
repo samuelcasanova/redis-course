@@ -23,7 +23,7 @@
 - **Cache patterns** - cache-aside, write-through, write-behind
 - **Cache invalidation** - strategies to invalidate cache
 
-**LEVEL 4 - PUB/SUB:**
+**LEVEL 4 - PUB/SUB [IN PROGRESS]:**
 
 - Channels and pattern matching
 - Real-time communication between services

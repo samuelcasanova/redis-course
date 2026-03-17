@@ -23,12 +23,16 @@
 - **Cache patterns** - cache-aside, write-through, write-behind
 - **Cache invalidation** - strategies to invalidate cache
 
-**LEVEL 4 - PUB/SUB [IN PROGRESS]:**
+**LEVEL 4 - PUB/SUB:**
 
-- Channels and pattern matching
-- Real-time communication between services
-- Differences vs message brokers (RabbitMQ/Kafka)
-- When to use Pub/Sub vs Streams
+- Channels and pattern matching (`SUBSCRIBE`, `PSUBSCRIBE`)
+- Real-time communication between services (e.g., chat, status updates)
+- Differences vs message brokers (RabbitMQ/Kafka):
+    - **Redis PubSub**: Ephemeral ("fire-and-forget"). No persistence. Fast, simple.
+    - **Kafka/RabbitMQ**: Persistent logs, consumer acks, guaranteed delivery.
+- When to use Pub/Sub vs Streams:
+    - **Pub/Sub**: When latency is key and dropping messages during downtime is acceptable (e.g., UI notifications).
+    - **Streams**: When you need message history, consumer groups, and persistence (replayability).
 
 **LEVEL 5 - REDIS STREAMS (the most modern):**
 

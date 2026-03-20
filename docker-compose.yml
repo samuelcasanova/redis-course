@@ -20,3 +20,16 @@ services:
       - "8081:8081"
     depends_on:
       - redis
+
+  backend:
+    image: python:3.11-alpine
+    container_name: engagement-backend
+    working_dir: /app
+    volumes:
+      - ./engagement-backend:/app
+      - ./.data/sqlite:/data/sqlite
+    ports:
+      - "8000:8000"
+    command: sh -c "pip install redis fastapi uvicorn pydantic && uvicorn main:app --host 0.0.0.0 --port 8000"
+    depends_on:
+      - redis

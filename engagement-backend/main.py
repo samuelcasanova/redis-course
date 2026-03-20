@@ -70,6 +70,21 @@ def get_users():
     redis_client.setex(cache_key, 60, json.dumps(users))
     return users
 
+@app.get("/users/top")
+def get_top_users():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT u.id, u.username, u.email, u.bio, COUNT(p.id) as post_count
+        FROM users u
+        LEFT JOIN posts p ON u.id = p.user_id
+        GROUP BY u.id
+        ORDER BY post_count DESC LIMIT 3
+    ''')
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
 @app.get("/users/{user_id}")
 def get_user(user_id: int):
     cache_key = f"user:profile:{user_id}"
@@ -94,3 +109,30 @@ def get_user(user_id: int):
         return profile
     
     raise HTTPException(status_code=404, detail="User not found")
+
+@app.get("/posts/recent")
+def get_recent_posts():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT p.id, p.title, p.text, p.timestamp, p.likes, p.views, 
+               u.id as author_id, u.username as author_username 
+        FROM posts p 
+        JOIN users u ON p.user_id = u.id 
+        ORDER BY p.timestamp DESC LIMIT 6
+    ''')
+    rows = cursor.fetchall()
+    conn.close()
+    
+    posts = []
+    for r in rows:
+        posts.append({
+            "id": r["id"],
+            "title": r["title"],
+            "text": r["text"],
+            "timestamp": r["timestamp"],
+            "likes": json.loads(r["likes"] or '[]'),
+            "views": json.loads(r["views"] or '[]'),
+            "author": {"id": r["author_id"], "username": r["author_username"]}
+        })
+    return posts

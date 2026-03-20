@@ -41,6 +41,41 @@ def setup_db():
         ''', user)
     conn.commit()
 
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS posts (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        text TEXT NOT NULL,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        likes TEXT DEFAULT '[]',
+        views TEXT DEFAULT '[]',
+        FOREIGN KEY (user_id) REFERENCES users (id)
+    )
+    ''')
+
+    cursor.execute('SELECT COUNT(*) FROM posts')
+    if cursor.fetchone()[0] == 0:
+        sample_posts = [
+            (1, 'Hello World!', 'This is my first post on this awesome new platform!'),
+            (2, 'Building things', 'Just sharing a quick update on my latest construction project.'),
+            (3, 'Smile everyday', 'A simple reminder to keep smiling and stay positive.'),
+            (4, 'The truth', 'I have found new evidence. The truth is definitely out there.'),
+            (1, 'Coding tips', 'Remember to always use a cache for frequently accessed data.'),
+            (2, 'Tools of the trade', 'What is your favorite hammer? Let me know in the comments.'),
+            (3, 'Joke of the day', 'Why did the developer go broke? Because he used up all his cache!'),
+            (4, 'Unexplained phenomena', 'Did anyone else see those lights in the sky last night?'),
+            (1, 'React + Vite', 'Loving the new developer experience with Vite and React.'),
+            (2, 'Architecture', 'Good foundations are key, whether in buildings or software.')
+        ]
+        
+        for post in sample_posts:
+            cursor.execute('''
+            INSERT INTO posts (user_id, title, text, likes, views)
+            VALUES (?, ?, ?, '[]', '[]')
+            ''', post)
+        conn.commit()
+    
 def get_user_profile(user_id: int):
     cache_key = f"user:profile:{user_id}"
     

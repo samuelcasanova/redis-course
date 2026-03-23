@@ -9,6 +9,11 @@ interface User {
   post_count?: number;
 }
 
+interface UserWithFollows extends User {
+  followers_count?: number;
+  following_count?: number;
+}
+
 interface Post {
   id: number;
   title: string;
@@ -23,14 +28,37 @@ interface Post {
 }
 
 function App() {
-  const [topUsers, setTopUsers] = useState<User[]>([]);
+  const [topUsers, setTopUsers] = useState<UserWithFollows[]>([]);
   const [recentPosts, setRecentPosts] = useState<Post[]>([]);
 
   useEffect(() => {
-    // Fetch Top 3 Users
+    // Fetch Top 3 Users and their follow stats
     fetch('http://localhost:8000/users/top')
       .then(res => res.json())
-      .then(data => setTopUsers(data))
+      .then(async (data: User[]) => {
+        // For each user, fetch their followers and following
+        const usersWithFollows = await Promise.all(
+          data.map(async (user) => {
+            try {
+              const [followersRes, followingRes] = await Promise.all([
+                fetch(`http://localhost:8000/users/${user.id}/followers`),
+                fetch(`http://localhost:8000/users/${user.id}/following`)
+              ]);
+              const followers = await followersRes.json();
+              const following = await followingRes.json();
+              return {
+                ...user,
+                followers_count: followers.length || 0,
+                following_count: following.length || 0
+              };
+            } catch (err) {
+              console.error(`Failed to fetch follows for user ${user.id}`, err);
+              return { ...user, followers_count: 0, following_count: 0 };
+            }
+          })
+        );
+        setTopUsers(usersWithFollows);
+      })
       .catch(console.error);
 
     // Fetch Recent 6 Posts
@@ -82,6 +110,10 @@ function App() {
                   </div>
                   <p className="user-email">{user.email}</p>
                   <p className="user-bio">{user.bio}</p>
+                  <div className="user-follow-stats">
+                    <span className="stat-pill">{user.followers_count} Followers</span>
+                    <span className="stat-pill">{user.following_count} Following</span>
+                  </div>
                 </div>
               ))}
             </div>

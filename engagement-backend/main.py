@@ -32,6 +32,10 @@ class EngagementRequest(BaseModel):
     user_id: int
 
 
+class FollowRequest(BaseModel):
+    follower_id: int
+
+
 def get_db_connection():
     if not os.path.exists(db_path):
         raise HTTPException(status_code=500, detail="Database not initialized. Please run init_db.py first.")
@@ -184,3 +188,101 @@ def like_post(post_id: int, body: EngagementRequest):
 def view_post(post_id: int, body: EngagementRequest):
     views = _toggle_engagement(post_id, 'views', body.user_id)
     return {"post_id": post_id, "views": views, "total": len(views)}
+
+
+def _get_user_row(cursor, user_id: int):
+    cursor.execute('SELECT id, username, email, bio, followers FROM users WHERE id = ?', (user_id,))
+    row = cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+    return row
+
+
+def _user_summary(row) -> dict:
+    return {"id": row["id"], "username": row["username"], "email": row["email"], "bio": row["bio"]}
+
+
+@app.post("/users/{user_id}/follow")
+def follow_user(user_id: int, body: FollowRequest):
+    """Add body.follower_id to user_id's followers list (idempotent)."""
+    if user_id == body.follower_id:
+        raise HTTPException(status_code=400, detail="A user cannot follow themselves")
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    row = _get_user_row(cursor, user_id)
+
+    followers: List[int] = json.loads(row["followers"] or '[]')
+    if body.follower_id not in followers:
+        followers.append(body.follower_id)
+        cursor.execute('UPDATE users SET followers = ? WHERE id = ?', (json.dumps(followers), user_id))
+        conn.commit()
+        redis_client.delete(f"user:profile:{user_id}")
+
+    conn.close()
+    return {"user_id": user_id, "followers": followers, "total": len(followers)}
+
+
+@app.post("/users/{user_id}/unfollow")
+def unfollow_user(user_id: int, body: FollowRequest):
+    """Remove body.follower_id from user_id's followers list."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    row = _get_user_row(cursor, user_id)
+
+    followers: List[int] = json.loads(row["followers"] or '[]')
+    if body.follower_id in followers:
+        followers.remove(body.follower_id)
+        cursor.execute('UPDATE users SET followers = ? WHERE id = ?', (json.dumps(followers), user_id))
+        conn.commit()
+        redis_client.delete(f"user:profile:{user_id}")
+
+    conn.close()
+    return {"user_id": user_id, "followers": followers, "total": len(followers)}
+
+
+@app.get("/users/{user_id}/followers")
+def get_followers(user_id: int):
+    """Return the list of user profiles who follow user_id."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    row = _get_user_row(cursor, user_id)
+
+    follower_ids: List[int] = json.loads(row["followers"] or '[]')
+    if not follower_ids:
+        conn.close()
+        return []
+
+    placeholders = ','.join('?' * len(follower_ids))
+    cursor.execute(
+        f'SELECT id, username, email, bio FROM users WHERE id IN ({placeholders})',
+        follower_ids
+    )
+    results = [_user_summary(r) for r in cursor.fetchall()]
+    conn.close()
+    return results
+
+
+@app.get("/users/{user_id}/following")
+def get_following(user_id: int):
+    """Return the list of user profiles that user_id follows.
+
+    Uses SQLite json_each() to find all users whose followers array contains user_id.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # Verify the user exists first
+    cursor.execute('SELECT id FROM users WHERE id = ?', (user_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found")
+
+    cursor.execute('''
+        SELECT DISTINCT u.id, u.username, u.email, u.bio
+        FROM users u, json_each(u.followers) je
+        WHERE je.value = ?
+    ''', (user_id,))
+    results = [_user_summary(r) for r in cursor.fetchall()]
+    conn.close()
+    return results

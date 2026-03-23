@@ -98,9 +98,17 @@ def setup_db():
         id INTEGER PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
         email TEXT UNIQUE NOT NULL,
-        bio TEXT
+        bio TEXT,
+        followers TEXT DEFAULT '[]'
     )
     ''')
+
+    # Add followers column if upgrading an existing DB
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN followers TEXT DEFAULT '[]'")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
 
     for user in USERS:
         cursor.execute('''
@@ -112,6 +120,17 @@ def setup_db():
     # Fetch the actual IDs assigned to users
     cursor.execute('SELECT id FROM users')
     all_user_ids = [row[0] for row in cursor.fetchall()]
+
+    # Seed followers: each user gets 10-100 random followers (not themselves)
+    cursor.execute('SELECT COUNT(*) FROM users WHERE followers != ?', ('[]',))
+    if cursor.fetchone()[0] == 0:
+        for uid in all_user_ids:
+            pool = [i for i in all_user_ids if i != uid]
+            count = random.randint(10, 300)
+            followers = json.dumps(random.sample(pool, min(count, len(pool))))
+            cursor.execute('UPDATE users SET followers = ? WHERE id = ?', (followers, uid))
+        conn.commit()
+        print(f"Seeded followers for {len(all_user_ids)} users.")
 
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS posts (

@@ -85,7 +85,17 @@ def get_users():
 
 @app.get("/users/top")
 def get_top_users():
+    cache_key = "users:top"
+    
+    # Try Cache First
+    cached_top = redis_client.get(cache_key)
+    if cached_top:
+        print("[CACHE HIT] Top Users")
+        return json.loads(cached_top)
+
+    print("[CACHE MISS] Top Users - Fetching from DB")
     time.sleep(3)  # Simulate slow DB operation
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
@@ -97,7 +107,12 @@ def get_top_users():
     ''')
     rows = cursor.fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    
+    # Store in Cache with 60s TTL
+    results = [dict(row) for row in rows]
+    redis_client.setex(cache_key, 60, json.dumps(results))
+    
+    return results
 
 
 @app.get("/users/{user_id}")

@@ -64,7 +64,7 @@ Create a system that combines several use cases:
 
 **"Engagement system for a social app":**
 
-- **Cache** - user profiles
+- **Cache** - user profiles: Cache aside strategy, created a simple cache called users:top with a sorted array of 3 user objects, with a TTL of 60 seconds.
 - **Sorted Sets** - trending posts (by likes/views)
 - **Sets** - followers/following relationships
 - **Lists** - timeline of posts

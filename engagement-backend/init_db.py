@@ -46,7 +46,7 @@ BIOS = [
 ]
 
 
-def _generate_users(count: int = 600):
+def _generate_users(count: int = 25000):
     """Generate `count` unique (username, email, bio) tuples."""
     seen = set()
     users = []
@@ -66,7 +66,7 @@ def _generate_users(count: int = 600):
     return users
 
 
-USERS = _generate_users(600)
+USERS = _generate_users(25000)
 
 SAMPLE_POSTS = [
     (1,  'Hello World!',           'This is my first post on this awesome new platform!'),
@@ -110,25 +110,41 @@ def setup_db():
     except sqlite3.OperationalError:
         pass  # Column already exists
 
-    for user in USERS:
-        cursor.execute('''
+    cursor.execute('SELECT COUNT(*) FROM users')
+    if cursor.fetchone()[0] == 0:
+        print("Inserting users...")
+        cursor.executemany('''
         INSERT OR IGNORE INTO users (username, email, bio)
         VALUES (?, ?, ?)
-        ''', user)
-    conn.commit()
+        ''', USERS)
+        conn.commit()
 
     # Fetch the actual IDs assigned to users
     cursor.execute('SELECT id FROM users')
     all_user_ids = [row[0] for row in cursor.fetchall()]
 
-    # Seed followers: each user gets 10-100 random followers (not themselves)
+    # Seed followers: each user gets 10-300 random followers (not themselves)
     cursor.execute('SELECT COUNT(*) FROM users WHERE followers != ?', ('[]',))
     if cursor.fetchone()[0] == 0:
+        print("Seeding followers... (this might take a few seconds)")
+        updates = []
         for uid in all_user_ids:
-            pool = [i for i in all_user_ids if i != uid]
+            # Picking a random sample efficiently without loading 25k items into array per iteration
             count = random.randint(10, 300)
-            followers = json.dumps(random.sample(pool, min(count, len(pool))))
-            cursor.execute('UPDATE users SET followers = ? WHERE id = ?', (followers, uid))
+            follower_set = set()
+            while len(follower_set) < count:
+                f_id = random.choice(all_user_ids)
+                if f_id != uid:
+                    follower_set.add(f_id)
+            updates.append((json.dumps(list(follower_set)), uid))
+            
+            # Batch apply updates to avoid memory explosion
+            if len(updates) >= 5000:
+                cursor.executemany('UPDATE users SET followers = ? WHERE id = ?', updates)
+                updates = []
+                
+        if updates:
+            cursor.executemany('UPDATE users SET followers = ? WHERE id = ?', updates)
         conn.commit()
         print(f"Seeded followers for {len(all_user_ids)} users.")
 
@@ -147,17 +163,43 @@ def setup_db():
 
     cursor.execute('SELECT COUNT(*) FROM posts')
     if cursor.fetchone()[0] == 0:
-        for post in SAMPLE_POSTS:
-            num_likes = random.randint(20, 50)
-            num_views = random.randint(100, 500)
-            likes = json.dumps(random.sample(all_user_ids, min(num_likes, len(all_user_ids))))
-            views = json.dumps(random.sample(all_user_ids, min(num_views, len(all_user_ids))))
-            cursor.execute('''
+        print("Generating posts...")
+        post_inserts = []
+        # Generate 100,000 posts to severely stress the unindexed JOIN for /users/top
+        for i in range(100000):
+            uid = random.choice(all_user_ids)
+            base_post = random.choice(SAMPLE_POSTS)
+            title = f"{base_post[1]} - {i}"
+            text = base_post[2]
+            
+            num_likes = random.randint(10, 50)
+            num_views = random.randint(50, 200)
+            
+            like_set = set()
+            while len(like_set) < num_likes:
+                like_set.add(random.choice(all_user_ids))
+            
+            view_set = set()
+            while len(view_set) < num_views:
+                view_set.add(random.choice(all_user_ids))
+                
+            post_inserts.append((uid, title, text, json.dumps(list(like_set)), json.dumps(list(view_set))))
+            
+            if len(post_inserts) >= 10000:
+                cursor.executemany('''
+                INSERT INTO posts (user_id, title, text, likes, views)
+                VALUES (?, ?, ?, ?, ?)
+                ''', post_inserts)
+                post_inserts = []
+                
+        if post_inserts:
+            cursor.executemany('''
             INSERT INTO posts (user_id, title, text, likes, views)
             VALUES (?, ?, ?, ?, ?)
-            ''', (post[0], post[1], post[2], likes, views))
+            ''', post_inserts)
+            
         conn.commit()
-        print(f"Seeded {len(SAMPLE_POSTS)} posts with random likes and views.")
+        print("Seeded 100,000 posts with random likes and views.")
 
 
 def get_user_profile(user_id: int):

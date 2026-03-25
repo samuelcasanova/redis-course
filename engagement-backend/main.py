@@ -6,6 +6,7 @@ import sqlite3
 import redis
 import json
 import os
+import time
 
 app = FastAPI(title="Engagement System API")
 
@@ -84,6 +85,7 @@ def get_users():
 
 @app.get("/users/top")
 def get_top_users():
+    time.sleep(3)  # Simulate slow DB operation
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
@@ -126,6 +128,7 @@ def get_user(user_id: int):
 
 @app.get("/posts/recent")
 def get_recent_posts():
+    time.sleep(3)  # Simulate slow DB operation
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''

@@ -287,6 +287,8 @@ def follow_user(user_id: int, body: FollowRequest):
         cursor.execute('UPDATE users SET followers = ? WHERE id = ?', (json.dumps(followers), user_id))
         conn.commit()
         redis_client.delete(f"user:profile:{user_id}")
+        redis_client.sadd(f"user:{user_id}:followers", body.follower_id)
+        redis_client.sadd(f"user:{body.follower_id}:following", user_id)
 
     conn.close()
     return {"user_id": user_id, "followers": followers, "total": len(followers)}
@@ -305,6 +307,8 @@ def unfollow_user(user_id: int, body: FollowRequest):
         cursor.execute('UPDATE users SET followers = ? WHERE id = ?', (json.dumps(followers), user_id))
         conn.commit()
         redis_client.delete(f"user:profile:{user_id}")
+        redis_client.srem(f"user:{user_id}:followers", body.follower_id)
+        redis_client.srem(f"user:{body.follower_id}:following", user_id)
 
     conn.close()
     return {"user_id": user_id, "followers": followers, "total": len(followers)}
@@ -313,19 +317,22 @@ def unfollow_user(user_id: int, body: FollowRequest):
 @app.get("/users/{user_id}/followers")
 def get_followers(user_id: int):
     """Return the list of user profiles who follow user_id."""
+    follower_ids = redis_client.smembers(f"user:{user_id}:followers")
+    
     conn = get_db_connection()
     cursor = conn.cursor()
-    row = _get_user_row(cursor, user_id)
-
-    follower_ids: List[int] = json.loads(row["followers"] or '[]')
+    
     if not follower_ids:
+        # Check if user actually exists
+        _get_user_row(cursor, user_id)
         conn.close()
         return []
 
-    placeholders = ','.join('?' * len(follower_ids))
+    follower_ids_list = list(follower_ids)
+    placeholders = ','.join('?' * len(follower_ids_list))
     cursor.execute(
         f'SELECT id, username, email, bio FROM users WHERE id IN ({placeholders})',
-        follower_ids
+        follower_ids_list
     )
     results = [_user_summary(r) for r in cursor.fetchall()]
     conn.close()
@@ -334,24 +341,49 @@ def get_followers(user_id: int):
 
 @app.get("/users/{user_id}/following")
 def get_following(user_id: int):
-    """Return the list of user profiles that user_id follows.
-
-    Uses SQLite json_each() to find all users whose followers array contains user_id.
-    """
+    """Return the list of user profiles that user_id follows."""
+    following_ids = redis_client.smembers(f"user:{user_id}:following")
+    
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Verify the user exists first
-    cursor.execute('SELECT id FROM users WHERE id = ?', (user_id,))
-    if not cursor.fetchone():
+    if not following_ids:
+        # Verify the user exists first
+        cursor.execute('SELECT id FROM users WHERE id = ?', (user_id,))
+        if not cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="User not found")
         conn.close()
-        raise HTTPException(status_code=404, detail="User not found")
+        return []
 
-    cursor.execute('''
-        SELECT DISTINCT u.id, u.username, u.email, u.bio
-        FROM users u, json_each(u.followers) je
-        WHERE je.value = ?
-    ''', (user_id,))
+    following_ids_list = list(following_ids)
+    placeholders = ','.join('?' * len(following_ids_list))
+    cursor.execute(
+        f'SELECT id, username, email, bio FROM users WHERE id IN ({placeholders})',
+        following_ids_list
+    )
+    results = [_user_summary(r) for r in cursor.fetchall()]
+    conn.close()
+    return results
+
+
+@app.get("/users/{user_id}/mutual_following/{other_user_id}")
+def get_mutual_following(user_id: int, other_user_id: int):
+    """Return the list of user profiles that BOTH users follow using SINTER."""
+    # This is where Redis Sets shine. O(N*M) mathematics done entirely in memory.
+    mutual_ids = redis_client.sinter(f"user:{user_id}:following", f"user:{other_user_id}:following")
+    
+    if not mutual_ids:
+        return []
+        
+    mutual_ids_list = list(mutual_ids)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    placeholders = ','.join('?' * len(mutual_ids_list))
+    cursor.execute(
+        f'SELECT id, username, email, bio FROM users WHERE id IN ({placeholders})',
+        mutual_ids_list
+    )
     results = [_user_summary(r) for r in cursor.fetchall()]
     conn.close()
     return results

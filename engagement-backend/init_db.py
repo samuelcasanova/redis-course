@@ -217,6 +217,22 @@ def setup_db():
         pipe.execute()
         print(f"Hydrated {len(rows)} posts into posts:trending.")
 
+    # Hydrate the Followers and Following Sets from SQLite
+    if not redis_client.exists("user:1:followers") and not redis_client.exists("user:1:following"):
+        print("Hydrating followers & following Sets in Redis...")
+        cursor.execute("SELECT id, followers FROM users")
+        user_rows = cursor.fetchall()
+        pipe = redis_client.pipeline()
+        for row in user_rows:
+            user_id = row[0]
+            followers = json.loads(row[1] or '[]')
+            if followers:
+                pipe.sadd(f"user:{user_id}:followers", *followers)
+                for f_id in followers:
+                    pipe.sadd(f"user:{f_id}:following", user_id)
+        pipe.execute()
+        print(f"Hydrated followers and following sets for {len(user_rows)} users.")
+
 
 def get_user_profile(user_id: int):
     cache_key = f"user:profile:{user_id}"

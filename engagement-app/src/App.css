@@ -287,6 +287,7 @@
   margin-bottom: 1rem;
 }
 
+
 .user-follow-stats {
   display: flex;
   gap: 0.5rem;
@@ -302,4 +303,120 @@
   color: var(--text-secondary);
   font-weight: 500;
 }
+
+/* User Profile & Navigation */
+.header-badges {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.app-badge, .logged-in-badge {
+  display: inline-block;
+  padding: 0.5rem 1.25rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.app-badge {
+  color: var(--text-secondary);
+}
+
+.logged-in-badge {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: var(--accent-light);
+}
+
+.back-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 1rem;
+  transition: background 0.2s ease;
+}
+
+.back-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.clickable-user {
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.clickable-user:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+span.clickable-user {
+  display: inline-block;
+}
+
+.user-card.clickable-user {
+  cursor: pointer;
+}
+
+.user-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.user-chip {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.user-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.mutual-connections {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.mutual-connections h3 {
+  font-size: 1.1rem;
+  color: var(--accent-light);
+  margin-bottom: 0.5rem;
+}
+
+.clickable-title {
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.clickable-title:hover {
+  opacity: 0.8;
+}
+
+.header-badges .back-btn {
+  margin-bottom: 0;
+}
+
 

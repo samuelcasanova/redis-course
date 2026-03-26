@@ -201,6 +201,22 @@ def setup_db():
         conn.commit()
         print("Seeded 100,000 posts with random likes and views.")
 
+    # Hydrate the posts:trending Sorted Set from SQLite
+    trending_key = "posts:trending"
+    if redis_client.zcard(trending_key) == 0:
+        print("Hydrating posts:trending Sorted Set in Redis...")
+        cursor.execute("SELECT id, likes, views FROM posts")
+        rows = cursor.fetchall()
+        pipe = redis_client.pipeline()
+        for row in rows:
+            post_id = row[0]
+            likes = len(json.loads(row[1] or '[]'))
+            views = len(json.loads(row[2] or '[]'))
+            score = likes + views
+            pipe.zadd(trending_key, {str(post_id): score})
+        pipe.execute()
+        print(f"Hydrated {len(rows)} posts into posts:trending.")
+
 
 def get_user_profile(user_id: int):
     cache_key = f"user:profile:{user_id}"

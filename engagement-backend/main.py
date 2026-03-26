@@ -141,6 +141,55 @@ def get_user(user_id: int):
     raise HTTPException(status_code=404, detail="User not found")
 
 
+@app.get("/posts/trending")
+def get_trending_posts():
+    """Return top 10 trending posts ranked by likes + views using a Redis Sorted Set."""
+    trending_key = "posts:trending"
+
+    # Fetch top 10 post IDs (highest score first) with their scores
+    top_entries = redis_client.zrevrange(trending_key, 0, 9, withscores=True)
+
+    if not top_entries:
+        return []
+
+    post_ids = [int(post_id) for post_id, _ in top_entries]
+    scores = {int(post_id): score for post_id, score in top_entries}
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    placeholders = ','.join('?' * len(post_ids))
+    cursor.execute(
+        f'''
+        SELECT p.id, p.title, p.text, p.timestamp, p.likes, p.views,
+               u.id as author_id, u.username as author_username
+        FROM posts p
+        JOIN users u ON p.user_id = u.id
+        WHERE p.id IN ({placeholders})
+        ''',
+        post_ids
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    # Build result, preserving the ranking order from Redis
+    row_map = {r["id"]: r for r in rows}
+    posts = []
+    for post_id in post_ids:
+        r = row_map.get(post_id)
+        if r:
+            posts.append({
+                "id": r["id"],
+                "title": r["title"],
+                "text": r["text"],
+                "timestamp": r["timestamp"],
+                "likes": json.loads(r["likes"] or '[]'),
+                "views": json.loads(r["views"] or '[]'),
+                "score": int(scores[post_id]),
+                "author": {"id": r["author_id"], "username": r["author_username"]}
+            })
+    return posts
+
+
 @app.get("/posts/recent")
 def get_recent_posts():
     time.sleep(3)  # Simulate slow DB operation
@@ -191,6 +240,8 @@ def _toggle_engagement(post_id: int, field: str, user_id: int) -> List[int]:
         conn.commit()
         # Invalidate the recent posts cache
         redis_client.delete('posts:recent')
+        # Increment the post's score in the trending Sorted Set
+        redis_client.zincrby('posts:trending', 1, str(post_id))
 
     conn.close()
     return current

@@ -64,8 +64,10 @@ Create a system that combines several use cases:
 
 **"Engagement system for a social app":**
 
-- **Cache** - user profiles: Cache aside strategy, created a simple cache called users:top with a sorted array of 3 user objects, with a TTL of 60 seconds.
+- **Cache** - user profiles
+    - Cache aside strategy, created a simple cache called users:top with a sorted array of 3 user objects, with a TTL of 60 seconds.
 - **Sorted Sets** - trending posts (by likes/views)
+    - Created a sorted set called posts:trending with the score being the sum of likes and views. Initialized in the init_db.py script once the posts exists in the DB. Every time a post is liked or viewed, the score is incremented by 1.
 - **Sets** - followers/following relationships
 - **Lists** - timeline of posts
 - **Pub/Sub** - real-time notifications

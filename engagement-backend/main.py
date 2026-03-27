@@ -37,6 +37,12 @@ class FollowRequest(BaseModel):
     follower_id: int
 
 
+class PostCreate(BaseModel):
+    user_id: int
+    title: str
+    text: str
+
+
 def get_db_connection():
     if not os.path.exists(db_path):
         raise HTTPException(status_code=500, detail="Database not initialized. Please run init_db.py first.")
@@ -185,6 +191,133 @@ def get_trending_posts():
                 "likes": json.loads(r["likes"] or '[]'),
                 "views": json.loads(r["views"] or '[]'),
                 "score": int(scores[post_id]),
+                "author": {"id": r["author_id"], "username": r["author_username"]}
+            })
+    return posts
+
+
+@app.post("/posts")
+def create_post(post: PostCreate):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        'INSERT INTO posts (user_id, title, text) VALUES (?, ?, ?)',
+        (post.user_id, post.title, post.text)
+    )
+    conn.commit()
+    post_id = cursor.lastrowid
+    conn.close()
+
+    # Invalidate recent posts cache
+    redis_client.delete('posts:recent')
+    
+    # -----------------------------------------
+    # REDIS LISTS: FAN-OUT ON WRITE (TIMELINE)
+    # -----------------------------------------
+    # 1. Get all followers of the author
+    follower_ids = redis_client.smembers(f"user:{post.user_id}:followers")
+    
+    # 2. Push this post ID to every follower's timeline
+    pipe = redis_client.pipeline()
+    for follower_id in follower_ids:
+        timeline_key = f"timeline:{follower_id}"
+        pipe.lpush(timeline_key, str(post_id))
+        # Keep only the latest 100 posts to save memory
+        pipe.ltrim(timeline_key, 0, 99)
+    
+    # We also add it to the user's own timeline
+    timeline_key = f"timeline:{post.user_id}"
+    pipe.lpush(timeline_key, str(post_id))
+    pipe.ltrim(timeline_key, 0, 99)
+    
+    pipe.execute()
+
+    return {"id": post_id, "message": "Post created and fanned out"}
+
+
+@app.get("/users/{user_id}/timeline")
+def get_timeline(user_id: int):
+    timeline_key = f"timeline:{user_id}"
+    
+    # -----------------------------------------
+    # LAZY HYDRATION (CACHE-ASIDE FOR LISTS)
+    # -----------------------------------------
+    if not redis_client.exists(timeline_key):
+        print(f"[CACHE MISS] Hydrating timeline for user {user_id}")
+        time.sleep(3)  # Simulate slow DB operation for calculating the timeline
+        following_ids = redis_client.smembers(f"user:{user_id}:following")
+        
+        # We want to see posts from our followings + our own posts
+        ids_to_fetch = list(following_ids) + [str(user_id)]
+        placeholders = ','.join('?' * len(ids_to_fetch))
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Fetch the latest 50 posts from these users (newest first)
+        cursor.execute(f'''
+            SELECT id FROM posts 
+            WHERE user_id IN ({placeholders}) 
+            ORDER BY timestamp DESC LIMIT 50
+        ''', ids_to_fetch)
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        if rows:
+            post_ids = [row["id"] for row in rows]
+            # When creating list from sorted results (newest first), 
+            # RPUSH ensures newest stays at the beginning (left) of the list
+            pipe = redis_client.pipeline()
+            pipe.rpush(timeline_key, *post_ids)
+            pipe.expire(timeline_key, 86400) # Expire in 24 hours
+            pipe.execute()
+        else:
+            return [] # No posts found
+    else:
+        print(f"[CACHE HIT] Timeline for user {user_id}")
+        # Reset expiration so active users stay cached lengthily
+        redis_client.expire(timeline_key, 86400)
+
+    # -----------------------------------------
+    # READ TIMELINE FROM REDIS
+    # -----------------------------------------
+    # Fetch exactly the top 20 post IDs from the Redis List instantly
+    post_ids = redis_client.lrange(timeline_key, 0, 19)
+    if not post_ids:
+        return []
+
+    # Map those rapid IDs to their actual SQL records
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    placeholders = ','.join('?' * len(post_ids))
+    cursor.execute(
+        f'''
+        SELECT p.id, p.title, p.text, p.timestamp, p.likes, p.views,
+               u.id as author_id, u.username as author_username
+        FROM posts p
+        JOIN users u ON p.user_id = u.id
+        WHERE p.id IN ({placeholders})
+        ''',
+        post_ids
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    # Re-order the results exactly as Redis returned them
+    row_map = {str(r["id"]): r for r in rows}
+    
+    posts = []
+    for pid in post_ids:
+        r = row_map.get(str(pid))
+        if r:
+            posts.append({
+                "id": r["id"],
+                "title": r["title"],
+                "text": r["text"],
+                "timestamp": r["timestamp"],
+                "likes": json.loads(r["likes"] or '[]'),
+                "views": json.loads(r["views"] or '[]'),
                 "author": {"id": r["author_id"], "username": r["author_username"]}
             })
     return posts

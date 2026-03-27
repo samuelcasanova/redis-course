@@ -69,7 +69,9 @@ Create a system that combines several use cases:
 - **Sorted Sets** - trending posts (by likes/views)
     - Created a sorted set called posts:trending with the score being the sum of likes and views. Initialized in the init_db.py script once the posts exists in the DB. Every time a post is liked or viewed, the score is incremented by 1.
 - **Sets** - followers/following relationships
+    - Created a set called user:user_id:followers with the users that follow the user. Created another set called user:user_id:following with the users that the user is following. Every time a user follows another user, the follower is added to the following set of the followed user and the followed user is added to the followers set of the follower.
 - **Lists** - timeline of posts
+    - Created a list called timeline:user_id with the posts of the users that the user is following, populated with a fan-out on write strategy. Everytime a post is created the post is added to the timeline of all the followers of the author.
 - **Pub/Sub** - real-time notifications
 - **Streams** - event log of all actions
 - **Rate limiting** - hourly limit of posts

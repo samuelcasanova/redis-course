@@ -31,7 +31,7 @@ interface TrendingPost extends Post {
   score: number;
 }
 
-type PostTab = 'latest' | 'trending';
+type PostTab = 'timeline' | 'latest' | 'trending';
 
 const CONNECTED_USER_ID = 1234;
 
@@ -39,8 +39,10 @@ function App() {
   const [topUsers, setTopUsers] = useState<UserWithFollows[]>([]);
   const [recentPosts, setRecentPosts] = useState<Post[]>([]);
   const [trendingPosts, setTrendingPosts] = useState<TrendingPost[]>([]);
-  const [activeTab, setActiveTab] = useState<PostTab>('latest');
+  const [timelinePosts, setTimelinePosts] = useState<Post[]>([]);
+  const [activeTab, setActiveTab] = useState<PostTab>('timeline');
   const [trendingLoaded, setTrendingLoaded] = useState(false);
+  const [timelineLoaded, setTimelineLoaded] = useState(false);
 
   const [viewingUserId, setViewingUserId] = useState<number | null>(null);
   const [viewingUser, setViewingUser] = useState<UserWithFollows | null>(null);
@@ -99,7 +101,23 @@ function App() {
     }
   }, [activeTab, trendingLoaded]);
 
-  const postsToShow = activeTab === 'latest' ? recentPosts : trendingPosts;
+  // Lazy-load timeline posts
+  useEffect(() => {
+    if (activeTab === 'timeline' && !timelineLoaded) {
+      fetch(`http://localhost:8000/users/${CONNECTED_USER_ID}/timeline`)
+        .then(res => res.json())
+        .then(data => {
+          setTimelinePosts(data);
+          setTimelineLoaded(true);
+        })
+        .catch(console.error);
+    }
+  }, [activeTab, timelineLoaded]);
+
+  let postsToShow: Post[] = [];
+  if (activeTab === 'timeline') postsToShow = timelinePosts;
+  else if (activeTab === 'latest') postsToShow = recentPosts;
+  else if (activeTab === 'trending') postsToShow = trendingPosts;
 
   const openUserProfile = async (userId: number) => {
     setViewingUserId(userId);
@@ -230,6 +248,13 @@ function App() {
           <section className="dashboard-section posts-section">
             {/* Tab switcher */}
             <div className="posts-tabs">
+              <button
+                id="tab-timeline"
+                className={`posts-tab${activeTab === 'timeline' ? ' active' : ''}`}
+                onClick={() => setActiveTab('timeline')}
+              >
+                🏠 My Timeline
+              </button>
               <button
                 id="tab-latest"
                 className={`posts-tab${activeTab === 'latest' ? ' active' : ''}`}

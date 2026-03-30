@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 import './App.css';
 
+interface Notification {
+  id: number;
+  title: string;
+  message: string;
+}
+
 interface User {
   id: number;
   username: string;
@@ -43,6 +49,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<PostTab>('timeline');
   const [trendingLoaded, setTrendingLoaded] = useState(false);
   const [timelineLoaded, setTimelineLoaded] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const [viewingUserId, setViewingUserId] = useState<number | null>(null);
   const [viewingUser, setViewingUser] = useState<UserWithFollows | null>(null);
@@ -113,6 +120,54 @@ function App() {
         .catch(console.error);
     }
   }, [activeTab, timelineLoaded]);
+
+  // Real-time notifications WebSocket
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    let isMounted = true;
+    let reconnectTimeout: ReturnType<typeof setTimeout>;
+
+    const connect = () => {
+      if (!isMounted) return;
+      ws = new WebSocket(`ws://localhost:8000/ws/notifications/${CONNECTED_USER_ID}`);
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          const newNotif = {
+            id: Date.now() + Math.random(),
+            title: data.title,
+            message: data.message
+          };
+          setNotifications(prev => [...prev, newNotif]);
+          
+          setTimeout(() => {
+            setNotifications(prev => prev.filter(n => n.id !== newNotif.id));
+          }, 5000);
+        } catch (e) {
+          console.error("Failed to parse notification", e);
+        }
+      };
+
+      ws.onclose = () => {
+        if (isMounted) {
+          console.warn("WebSocket closed. Reconnecting...");
+          reconnectTimeout = setTimeout(connect, 2000);
+        }
+      };
+    };
+
+    const initialTimeout = setTimeout(connect, 100);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(initialTimeout);
+      clearTimeout(reconnectTimeout);
+      if (ws) {
+        ws.close();
+      }
+    };
+  }, []);
 
   let postsToShow: Post[] = [];
   if (activeTab === 'timeline') postsToShow = timelinePosts;
@@ -329,6 +384,16 @@ function App() {
           </section>
         </div>
       </main>
+
+      {/* Notifications Container */}
+      <div className="notifications-container">
+        {notifications.map(notif => (
+          <div key={notif.id} className="notification-toast">
+            <strong>{notif.title}</strong>
+            <p>{notif.message}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

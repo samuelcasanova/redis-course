@@ -73,6 +73,7 @@ Create a system that combines several use cases:
 - **Lists** - timeline of posts
     - Created a list called timeline:user_id with the posts of the users that the user is following, populated with a fan-out on write strategy. Everytime a post is created the post is added to the timeline of all the followers of the author.
 - **Pub/Sub** - real-time notifications
+    - Created a pub/sub system to notify users of new events. The backend opens a WebSocket connection with the frontend and publishes messages to the frontend when events happen. The events are simulated with a dedicated script.
 - **Streams** - event log of all actions
 - **Rate limiting** - hourly limit of posts
 - **Distributed lock** - prevent double-posting

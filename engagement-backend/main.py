@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
 from pydantic import BaseModel
 from typing import List
 import sqlite3
@@ -7,6 +8,7 @@ import redis
 import json
 import os
 import time
+import redis.asyncio as aioredis
 
 app = FastAPI(title="Engagement System API")
 
@@ -20,6 +22,7 @@ app.add_middleware(
 )
 
 redis_client = redis.Redis(host='redis', port=6379, db=0, decode_responses=True)
+async_redis_client = aioredis.Redis(host='redis', port=6379, db=0, decode_responses=True)
 db_path = os.path.join('/data/sqlite', 'engagement.db')
 
 
@@ -520,3 +523,35 @@ def get_mutual_following(user_id: int, other_user_id: int):
     results = [_user_summary(r) for r in cursor.fetchall()]
     conn.close()
     return results
+
+
+@app.websocket("/ws/notifications/{user_id}")
+async def websocket_notifications(websocket: WebSocket, user_id: int):
+    await websocket.accept()
+    pubsub = async_redis_client.pubsub()
+    await pubsub.subscribe(f"notifications:{user_id}", "notifications:all")
+    print(f"WebSocket connected for user {user_id}")
+
+    # Start a background task to receive client disconnect signals
+    async def listen_for_disconnect():
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+
+    disconnect_task = asyncio.create_task(listen_for_disconnect())
+
+    try:
+        while not disconnect_task.done():
+            # Awaits new messages for up to 1 second
+            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+            if message and message.get('type') == 'message':
+                await websocket.send_text(str(message['data']))
+    except Exception as e:
+        print(f"WS Exception: {e}")
+    finally:
+        disconnect_task.cancel()
+        await pubsub.unsubscribe()
+        await pubsub.close()
+        print(f"WebSocket disconnected for user {user_id}")

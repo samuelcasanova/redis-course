@@ -25,6 +25,20 @@ redis_client = redis.Redis(host='redis', port=6379, db=0, decode_responses=True)
 async_redis_client = aioredis.Redis(host='redis', port=6379, db=0, decode_responses=True)
 db_path = os.path.join('/data/sqlite', 'engagement.db')
 
+def log_info(msg: str):
+    print(msg)
+    try:
+        redis_client.xadd("system_logs", {"level": "info", "message": str(msg)})
+    except Exception:
+        pass
+
+def log_error(msg: str):
+    print(f"ERROR: {msg}")
+    try:
+        redis_client.xadd("system_logs", {"level": "error", "message": str(msg)})
+    except Exception:
+        pass
+
 
 class UserCreate(BaseModel):
     username: str
@@ -65,6 +79,11 @@ def create_user(user: UserCreate):
         )
         conn.commit()
         user_id = cursor.lastrowid
+        redis_client.xadd("domain_events", {
+            "type": "new_user",
+            "user_id": str(user_id),
+            "username": user.username
+        })
     except sqlite3.IntegrityError:
         conn.close()
         raise HTTPException(status_code=400, detail="Username or email already exists")
@@ -77,10 +96,10 @@ def get_users():
     cache_key = "users:all"
     cached_users = redis_client.get(cache_key)
     if cached_users:
-        print("[CACHE HIT] All Users")
+        log_info("[CACHE HIT] All Users")
         return json.loads(cached_users)
 
-    print("[CACHE MISS] Fetching All Users from DB")
+    log_info("[CACHE MISS] Fetching All Users from DB")
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT id, username, email, bio FROM users')
@@ -99,10 +118,10 @@ def get_top_users():
     # Try Cache First
     cached_top = redis_client.get(cache_key)
     if cached_top:
-        print("[CACHE HIT] Top Users")
+        log_info("[CACHE HIT] Top Users")
         return json.loads(cached_top)
 
-    print("[CACHE MISS] Top Users - Fetching from DB")
+    log_info("[CACHE MISS] Top Users - Fetching from DB")
     time.sleep(3)  # Simulate slow DB operation
     
     conn = get_db_connection()
@@ -131,10 +150,10 @@ def get_user(user_id: int):
     # Try Cache First
     cached_profile = redis_client.get(cache_key)
     if cached_profile:
-        print(f"[CACHE HIT] User {user_id}")
+        log_info(f"[CACHE HIT] User {user_id}")
         return json.loads(cached_profile)
 
-    print(f"[CACHE MISS] User {user_id} - Fetching from DB")
+    log_info(f"[CACHE MISS] User {user_id} - Fetching from DB")
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('SELECT id, username, email, bio FROM users WHERE id = ?', (user_id,))
@@ -211,6 +230,13 @@ def create_post(post: PostCreate):
     post_id = cursor.lastrowid
     conn.close()
 
+    redis_client.xadd("domain_events", {
+        "type": "new_post",
+        "post_id": str(post_id),
+        "user_id": str(post.user_id),
+        "title": post.title
+    })
+
     # Invalidate recent posts cache
     redis_client.delete('posts:recent')
     
@@ -246,7 +272,7 @@ def get_timeline(user_id: int):
     # LAZY HYDRATION (CACHE-ASIDE FOR LISTS)
     # -----------------------------------------
     if not redis_client.exists(timeline_key):
-        print(f"[CACHE MISS] Hydrating timeline for user {user_id}")
+        log_info(f"[CACHE MISS] Hydrating timeline for user {user_id}")
         time.sleep(3)  # Simulate slow DB operation for calculating the timeline
         following_ids = redis_client.smembers(f"user:{user_id}:following")
         
@@ -278,7 +304,7 @@ def get_timeline(user_id: int):
         else:
             return [] # No posts found
     else:
-        print(f"[CACHE HIT] Timeline for user {user_id}")
+        log_info(f"[CACHE HIT] Timeline for user {user_id}")
         # Reset expiration so active users stay cached lengthily
         redis_client.expire(timeline_key, 86400)
 
@@ -425,6 +451,12 @@ def follow_user(user_id: int, body: FollowRequest):
         redis_client.delete(f"user:profile:{user_id}")
         redis_client.sadd(f"user:{user_id}:followers", body.follower_id)
         redis_client.sadd(f"user:{body.follower_id}:following", user_id)
+        
+        redis_client.xadd("domain_events", {
+            "type": "new_follower",
+            "user_id": str(user_id),
+            "follower_id": str(body.follower_id)
+        })
 
     conn.close()
     return {"user_id": user_id, "followers": followers, "total": len(followers)}
@@ -530,7 +562,7 @@ async def websocket_notifications(websocket: WebSocket, user_id: int):
     await websocket.accept()
     pubsub = async_redis_client.pubsub()
     await pubsub.subscribe(f"notifications:{user_id}", "notifications:all")
-    print(f"WebSocket connected for user {user_id}")
+    log_info(f"WebSocket connected for user {user_id}")
 
     # Start a background task to receive client disconnect signals
     async def listen_for_disconnect():
@@ -549,9 +581,9 @@ async def websocket_notifications(websocket: WebSocket, user_id: int):
             if message and message.get('type') == 'message':
                 await websocket.send_text(str(message['data']))
     except Exception as e:
-        print(f"WS Exception: {e}")
+        log_error(f"WS Exception: {e}")
     finally:
         disconnect_task.cancel()
         await pubsub.unsubscribe()
         await pubsub.close()
-        print(f"WebSocket disconnected for user {user_id}")
+        log_info(f"WebSocket disconnected for user {user_id}")

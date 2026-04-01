@@ -26,6 +26,15 @@ try:
         event = random.choice(NOTIFICATIONS)
         # Publish the event exactly the same way the backend would
         published = redis_client.publish(CHANNEL, json.dumps(event))
+        
+        # Log to domain_events stream
+        redis_client.xadd("domain_events", {
+            "type": "new_notification",
+            "user_id": str(USER_ID),
+            "title": event["title"],
+            "message": event["message"]
+        })
+        
         print(f"[{time.strftime('%X')}] Sent: '{event['title']}' (Received by {published} clients)")
         time.sleep(3)
 except KeyboardInterrupt:

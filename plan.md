@@ -75,5 +75,6 @@ Create a system that combines several use cases:
 - **Pub/Sub** - real-time notifications
     - Created a pub/sub system to notify users of new events. The backend opens a WebSocket connection with the frontend and publishes messages to the frontend when events happen. The events are simulated with a dedicated script.
 - **Streams** - event log of all actions
+    - Created a stream called domain_events to log new users, posts and follows. Created another stream called system_logs to log all logs. Created a consumer script to consume the domain_events stream and print the events to the console simulating email notifications. Also created a cleanup script to clean up the domain_events stream older than 1 week.
 - **Rate limiting** - hourly limit of posts
 - **Distributed lock** - prevent double-posting
